@@ -8,6 +8,8 @@ import matplotlib
 import pygmsh, meshio
 import numpy             as np
 import matplotlib.pyplot as plt
+import pandas as pd
+
 
 # Custom imports
 from meshes import *
@@ -15,31 +17,36 @@ from meshes import *
 ### ************************************************
 ### Class defining shape object
 class Shape:
-    ### ************************************************
-    ### Constructor
     def __init__(self,
                  name          ='shape',
                  control_pts   =None,
                  n_control_pts =None,
                  n_sampling_pts=None,
                  radius        =None,
-                 edgy          =None):
+                 edgy          =None,
+                 save_det_plot =None):
         if (name           is None): name           = 'shape'
         if (control_pts    is None): control_pts    = np.array([])
         if (n_control_pts  is None): n_control_pts  = 0
         if (n_sampling_pts is None): n_sampling_pts = 0
         if (radius         is None): radius         = np.array([])
         if (edgy           is None): edgy           = np.array([])
+        if (save_det_plot  is None): save_det_plot  = True
+
 
         self.name           = name
         self.control_pts    = control_pts
         self.n_control_pts  = n_control_pts
         self.n_sampling_pts = n_sampling_pts
         self.curve_pts      = np.array([])
+        self.curve_cpts     = np.array([])
         self.area           = 0.0
         self.size_x         = 0.0
         self.size_y         = 0.0
         self.index          = 0
+        self.save_det_plot = save_det_plot
+        self.bitmap = 0
+        self.curve_length = 0
 
         if (len(radius) == n_control_pts): self.radius = radius
         if (len(radius) == 1):             self.radius = radius*np.ones([n_control_pts])
@@ -77,16 +84,21 @@ class Shape:
     def generate(self, *args, **kwargs):
         # Handle optional argument
         centering = kwargs.get('centering', True)
+        #cylinder = True
         cylinder  = kwargs.get('cylinder',  False)
         magnify   = kwargs.get('magnify',   1.0)
         ccws      = kwargs.get('ccws',      True)
+        latin_gen = kwargs.get('latin_gen', False)
 
         # Generate random control points if empty
         if (len(self.control_pts) == 0):
             if (cylinder):
                 self.control_pts = generate_cylinder_pts(self.n_control_pts)
+            elif (type(latin_gen) == np.ndarray):
+                self.control_pts = latin_gen[self.index,:].reshape(-1,2)
             else:
                 self.control_pts = generate_random_pts(self.n_control_pts)
+                
 
         # Magnify
         self.control_pts *= magnify
@@ -107,6 +119,7 @@ class Shape:
             edgy        = np.array(self.edgy)
 
         local_curves = []
+        cont_pts = []
         delta        = np.zeros([self.n_control_pts,2])
         radii        = np.zeros([self.n_control_pts,2])
         delta_b      = np.zeros([self.n_control_pts,2])
@@ -117,6 +130,7 @@ class Shape:
             prv  = (i-1)
             crt  = i
             nxt  = (i+1)%self.n_control_pts
+
             pt_m = control_pts[prv,:]
             pt_c = control_pts[crt,:]
             pt_p = control_pts[nxt,:]
@@ -131,6 +145,7 @@ class Shape:
             # Compute radii
             dist         = compute_distance(pt_m, pt_c)
             radii[crt,0] = 0.5*dist*radius[crt]
+
             dist         = compute_distance(pt_c, pt_p)
             radii[crt,1] = 0.5*dist*radius[crt]
 
@@ -143,13 +158,15 @@ class Shape:
             dist = compute_distance(pt_c, pt_p)
             smpl = math.ceil(self.n_sampling_pts*math.sqrt(dist))
 
-            local_curve = generate_bezier_curve(pt_c,           pt_p,
+            local_curve,control_pt_out = generate_bezier_curve(pt_c,           pt_p,
                                                 delta[crt,:],   delta[nxt,:],
                                                 delta_b[crt,:], delta_b[nxt,:],
                                                 radii[crt,1],   radii[nxt,0],
                                                 edgy[crt],      edgy[nxt],
                                                 smpl)
+            
             local_curves.append(local_curve)
+            cont_pts.append(control_pt_out)
 
         curve          = np.concatenate([c for c in local_curves])
         x, y           = curve.T
@@ -157,17 +174,58 @@ class Shape:
         self.curve_pts = np.column_stack((x,y,z))
         self.curve_pts = remove_duplicate_pts(self.curve_pts)
 
-        # Center set of points
-        if (centering):
-            center            = np.mean(self.curve_pts, axis=0)
-            self.curve_pts   -= center
-            self.control_pts[:,0:2] -= center[0:2]
+        if self.save_det_plot == True:
+            curve          = np.concatenate([c for c in cont_pts])
+            x, y           = curve.T
+            z              = np.zeros(x.size)
+            self.curve_cpts = np.column_stack((x,y,z))
+
+            # Center set of points
+            if (centering):
+                center            = np.mean(self.curve_pts, axis=0)
+                self.curve_pts   -= center
+                self.control_pts[:,0:2] -= center[0:2]
+                self.curve_cpts -= center
+            
+            #plt.plot(self.curve_pts[:,0], self.curve_pts[:,1])
+            colors = plt.cm.tab10  # or any other colormap
+            for i in range(self.n_control_pts):
+                curve          = local_curves[i]
+                x, y           = curve.T
+                z              = np.zeros(x.size)
+                curve_pts = np.column_stack((x,y,z)) - center
+
+                control_for_i = self.curve_cpts[i*4:i*4+4]
+
+                x = np.cos(np.linspace(0,2*np.pi,100))*radii[i,1]
+                y = np.sin(np.linspace(0,2*np.pi,100))*radii[i,1]
+                color = colors(i % 10)
+                plt.plot(x + control_pts[i, 0]- center[0], y + control_pts[i, 1]- center[1], color=color)
+                
+                """
+                nxt = (i+1)%self.n_control_pts
+                x = np.cos(np.linspace(0,2*np.pi,100))*radii[nxt,0]
+                y = np.sin(np.linspace(0,2*np.pi,100))*radii[nxt,0]
+                color = colors(i % 10)
+                plt.plot(x + self.control_pts[nxt,0], y + self.control_pts[nxt, 1], color=color)
+                """
+                plt.plot(curve_pts[:, 0], curve_pts[:, 1], color=color)
+                plt.scatter(control_for_i[1:3, 0], control_for_i[1:3, 1], color=color)
+            filename = self.name+'_'+str(self.index)+"det_plot"+'.png'
+            plt.savefig(filename,
+                        dpi=400,
+                        bbox_inches='tight')
+            plt.clf() 
+
 
         # Compute area
         self.compute_area()
 
         # Compute dimensions
         self.compute_dimensions()
+
+        # Compute the lenght of the curve
+        self.compute_curve_length()
 
     ### ************************************************
     ### Write image
@@ -182,7 +240,6 @@ class Shape:
         xmax           = kwargs.get('xmax',           1.0)
         ymin           = kwargs.get('ymin',          -1.0)
         ymax           = kwargs.get('ymax',           1.0)
-
         # Plot shape
         plt.xlim([xmin,xmax])
         plt.ylim([ymin,ymax])
@@ -240,6 +297,20 @@ class Shape:
         plt.close(plt.gcf())
         plt.cla()
         trim_white(filename)
+
+    def generate_bitmap(self, *args, **kwargs):
+        # Handle optional argument
+        plot_pts       = self.curve_pts
+        bitmap = scanline_fill(plot_pts[:,:2] *250 + np.array([250,250]), 500,500)
+        self.bitmap = bitmap
+
+        plt.imshow(bitmap, cmap='gray')
+        # Save image
+        filename = self.name+'_'+str(self.index)+"bit"+'.png'        
+        plt.savefig(filename,
+                    bbox_inches='tight')
+        plt.clf()
+        return bitmap
 
     ### ************************************************
     ### Write csv
@@ -415,6 +486,12 @@ class Shape:
 
     ### ************************************************
     ### Compute shape area
+    def compute_curve_length(self):
+        curve = self.curve_pts
+        diffs = np.diff(curve, axis=0)
+        segment_lengths = np.linalg.norm(diffs, axis=1)
+        self.curve_length = np.sum(segment_lengths)
+
     def compute_area(self):
         self.area = 0.0
 
@@ -459,7 +536,8 @@ def compute_distance(p1, p2):
 ### Generate n_pts random points in the unit square
 def generate_random_pts(n_pts):
 
-    return np.random.rand(n_pts,2)
+    return np.array([[1, -1], [1, 1], [-1, 1], [-1, -1]], dtype=float)
+    #return np.random.rand(n_pts,2)
 
 ### ************************************************
 ### Generate cylinder points
@@ -598,7 +676,7 @@ def generate_bezier_curve(p1,       p2,
         curve = p1
         curve = np.vstack([curve,p2])
 
-    return curve
+    return curve, control_pts
 
 ### Crop white background from image
 def trim_white(filename):
@@ -609,3 +687,37 @@ def trim_white(filename):
     bbox = diff.getbbox()
     cp   = im.crop(bbox)
     cp.save(filename)
+
+
+def scanline_fill(polygon, width, height):
+    # Convert to integer pixel coordinates
+    polygon = np.array(polygon, dtype=int)
+    filled = np.zeros((height, width), dtype=np.uint8)
+
+    ymin = np.min(polygon[:,1])
+    ymax = np.max(polygon[:,1])
+
+    for y in range(ymin, ymax + 1):
+        intersections = []
+        for i in range(len(polygon)):
+            p1 = polygon[i]
+            p2 = polygon[(i + 1) % len(polygon)]
+            if p1[1] == p2[1]: continue  # skip horizontal edges
+            if (y < min(p1[1], p2[1])) or (y > max(p1[1], p2[1])): continue
+            # Compute intersection x
+            x = int(p1[0] + (y - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]))
+            intersections.append(x)
+        intersections.sort()
+        unique_list = []
+        seen = set()
+        for item in intersections:
+            if item not in seen:
+                seen.add(item)
+                unique_list.append(item)
+        intersections = unique_list
+        for i in range(0, len(intersections), 2):
+            if i + 1 < len(intersections):
+                x_start = intersections[i]
+                x_end = intersections[i + 1]
+                filled[y, x_start:x_end+1] = 1
+    return filled
