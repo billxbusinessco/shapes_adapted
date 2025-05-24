@@ -111,8 +111,12 @@ for i in range(0,n_shapes):
         """
     bar.next()
 bit = df["bitmap"]
+plt.imshow(bit.mean(), cmap='gray')
+
 curve = df["area"]
 print(df["bitmap"])
 
 # End bar
 bar.finish()
+
+# %%

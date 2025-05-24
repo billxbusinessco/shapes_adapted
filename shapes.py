@@ -9,6 +9,7 @@ import pygmsh, meshio
 import numpy             as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.stats import qmc
 
 
 # Custom imports
@@ -298,18 +299,19 @@ class Shape:
         plt.cla()
         trim_white(filename)
 
-    def generate_bitmap(self, *args, **kwargs):
+    def generate_bitmap(self,bit_im = False,  *args, **kwargs):
         # Handle optional argument
         plot_pts       = self.curve_pts
-        bitmap = scanline_fill(plot_pts[:,:2] *250 + np.array([250,250]), 500,500)
+        bitmap = scanline_fill(plot_pts[:,:2] *250 + np.array([300,300]), 600,600)
         self.bitmap = bitmap
+        if bit_im:
+            plt.imshow(bitmap, cmap='gray')
+            # Save image
+            filename = self.name+'_'+str(self.index)+"bit"+'.png'        
+            plt.savefig(filename,
+                        bbox_inches='tight')
+            plt.clf()
 
-        plt.imshow(bitmap, cmap='gray')
-        # Save image
-        filename = self.name+'_'+str(self.index)+"bit"+'.png'        
-        plt.savefig(filename,
-                    bbox_inches='tight')
-        plt.clf()
         return bitmap
 
     ### ************************************************
@@ -536,8 +538,14 @@ def compute_distance(p1, p2):
 ### Generate n_pts random points in the unit square
 def generate_random_pts(n_pts):
 
-    return np.array([[1, -1], [1, 1], [-1, 1], [-1, -1]], dtype=float)
-    #return np.random.rand(n_pts,2)
+    equ_dim_lim = 1.5
+    latin_gen = False
+    latin_gen = qmc.LatinHypercube(d=2)
+    latin_gen = latin_gen.random(n=n_pts)
+    latin_gen = equ_dim_lim * latin_gen
+
+    #return np.array([[1, -1], [1, 1], [-1, 1], [-1, -1]], dtype=float)
+    return latin_gen
 
 ### ************************************************
 ### Generate cylinder points
