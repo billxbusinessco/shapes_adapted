@@ -90,13 +90,14 @@ class Shape:
         magnify   = kwargs.get('magnify',   1.0)
         ccws      = kwargs.get('ccws',      True)
         latin_gen = kwargs.get('latin_gen', False)
+        latin_gen_outer_space = kwargs.get('latin_gen_outer_space', False)
 
         # Generate random control points if empty
         if (len(self.control_pts) == 0):
             if (cylinder):
                 self.control_pts = generate_cylinder_pts(self.n_control_pts)
-            elif (type(latin_gen) == np.ndarray):
-                self.control_pts = latin_gen[self.index,:].reshape(-1,2)
+            elif (latin_gen):
+                self.control_pts = latin_gen_outer_space[self.index,:].reshape(-1,2)
             else:
                 self.control_pts = generate_random_pts(self.n_control_pts)
                 
@@ -539,7 +540,6 @@ def compute_distance(p1, p2):
 def generate_random_pts(n_pts):
 
     equ_dim_lim = 1.5
-    latin_gen = False
     latin_gen = qmc.LatinHypercube(d=2)
     latin_gen = latin_gen.random(n=n_pts)
     latin_gen = equ_dim_lim * latin_gen
