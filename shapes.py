@@ -538,14 +538,14 @@ def compute_distance(p1, p2):
 ### ************************************************
 ### Generate n_pts random points in the unit square
 def generate_random_pts(n_pts):
-
     equ_dim_lim = 1.5
+
     latin_gen = qmc.LatinHypercube(d=2)
     latin_gen = latin_gen.random(n=n_pts)
     latin_gen = equ_dim_lim * latin_gen
-
-    #return np.array([[1, -1], [1, 1], [-1, 1], [-1, -1]], dtype=float)
     return latin_gen
+
+    #return np.random.randn(n_pts,2) * equ_dim_lim
 
 ### ************************************************
 ### Generate cylinder points

@@ -11,10 +11,13 @@ from matplotlib import pyplot as plt
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq, ifft
-
 import shapes
 import meshes
 import importlib
+import multiprocessing
+import time
+from multiprocessing import Pool
+
 
 importlib.reload(shapes)
 importlib.reload(meshes)
@@ -55,7 +58,32 @@ from meshes import *
 ### ************************************************
 ### Generate full dataset
 # Parameters
-def generate_samples(numero_samples,n_base, latin_gen_bool, bit_im = False):
+def generate_data_indicators_light_ind(seeds,number_of_samples):
+    bit, df1 = generate_samples()
+    points = df1["curve_points"]
+    df1["angles"] = None
+    df1["angles"] = df1["angles"].astype(object)
+    df1["spectra"] = None
+    df1["spectra"] = df1["spectra"].astype(object)
+    limit = 20
+    for index,row in df1.iterrows():
+        points = row["curve_points"]
+        angles = np.arctan2(points[:, 1], points[:, 0])
+        df1.at[index, "angles"] = angles
+        og_data = np.linalg.norm(points, axis = 1)
+
+        fs1 = angles.shape[0]/(2*np.pi)
+        samples1 = og_data
+        fft1 = fft(og_data)
+        freqs1 = fftfreq(len(samples1), 1/fs1)
+        df1.at[index,"spectra"] = fft1[:limit]/points.shape[0]
+
+    spectra = df1["spectra"]
+    spectra = np.stack(spectra.values)
+    
+    return df1,spectra
+
+def generate_samples(numero_samples,n_base,code, latin_gen_bool = False, bit_im = False, bitmap_generate = False):
     n_sampling_pts = 20
     mesh_domain    = False
     plot_pts       = True
@@ -63,10 +91,10 @@ def generate_samples(numero_samples,n_base, latin_gen_bool, bit_im = False):
     n_shapes       = numero_samples
     time           = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
     dataset_dir    = 'dataset_'+time+'/'
-    mesh_dir       = dataset_dir+'meshes/'
-    img_dir        = dataset_dir+'images/'
-    det_img_dir    = dataset_dir+'det_images/'
-    bit_img_dir    = dataset_dir+'bit_images/'
+    mesh_dir       = dataset_dir+f'meshes_{code}/'
+    img_dir        = dataset_dir+f'images_{code}/'
+    det_img_dir    = dataset_dir+f'det_images_{code}/'
+    bit_img_dir    = dataset_dir+f'bit_images_{code}/'
     save_det_plot = False
 
     filename       = 'shape'
@@ -115,8 +143,9 @@ def generate_samples(numero_samples,n_base, latin_gen_bool, bit_im = False):
         while (not generated):
             if not latin_gen_bool:
                 #n_pts  = random.randint(3, 7)
-                radius = np.random.uniform(0.3, .9, size=n_pts)
-                edgy   = np.random.uniform(0.1, .5, size=n_pts)
+                radius = np.random.uniform(0.1, .3, size=n_pts)
+                print(radius)
+                edgy   = np.random.uniform(0.1, .3, size=n_pts)
             else:
                 radius = radius_tot[0,i,:]
                 edgy   = radius_tot[1,i,:]
@@ -139,6 +168,12 @@ def generate_samples(numero_samples,n_base, latin_gen_bool, bit_im = False):
             if save_det_plot:
                 img  = filename+'_'+str(i)+"det_plot"+'.png'
                 shutil.move(img,  det_img_dir)
+
+            if not bitmap_generate:
+                shape.bitmap = 0
+
+            else:
+                shape.generate_bitmap(bit_im=bit_im)
             
             shape.generate_bitmap(bit_im=bit_im)
 
@@ -173,9 +208,8 @@ def generate_samples(numero_samples,n_base, latin_gen_bool, bit_im = False):
     bar.finish()
     return bit,df
 
-
 class analysis:
-    def __init__ (self, n_shapes,n_base,latin_gen_bool):
+    def __init__ (self, n_shapes = 10,n_base = 10 ,latin_gen_bool = False):
         self.pre = ""
         self.n_sampling_pts = 30
         self.mesh_domain    = False
@@ -201,6 +235,7 @@ class analysis:
         self.ymax           =  2.0
         self.n_tri_max      = 5000
         self.equ_dim_lim    = 1.5
+        self.current_indicators = 0
 
     def resetdirectory(self):
         self.time           = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
@@ -210,7 +245,7 @@ class analysis:
         self.det_img_dir    = self.dataset_dir + 'det_images/'
         self.bit_img_dir    = self.dataset_dir + 'bit_images/'
 
-    def generate_samples(self, bit_im = False):
+    def generate_samples(self, bit_im = False, bitmap_generate = False):
         self.resetdirectory()
         latin_gen = None
 
@@ -221,7 +256,8 @@ class analysis:
 
             radius_tot = latin_gen.reshape(-1, self.n_shapes, self.n_base)
             edgy_tot   = latin_gen.reshape(-1, self.n_shapes, self.n_base)
-
+            
+        
         if not os.path.exists(self.mesh_dir):
             os.makedirs(self.mesh_dir)
         if not os.path.exists(self.img_dir):
@@ -238,8 +274,9 @@ class analysis:
             generated = False
             while not generated:
                 if not self.latin_gen_bool:
-                    radius = np.random.uniform(0.3, .9, size=self.n_base)
-                    edgy   = np.random.uniform(0.1, .5, size=self.n_base)
+                    radius = np.random.uniform(0.7, .9, size=self.n_base)
+                    edgy   = np.random.uniform(0.1, .3, size=self.n_base)
+                    print(radius)
                 else:
                     radius = radius_tot[0, i, :]
                     edgy   = edgy_tot[1, i, :]
@@ -263,8 +300,13 @@ class analysis:
                 if self.save_det_plot:
                     img = self.filename + '_' + str(i) + "det_plot" + '.png'
                     shutil.move(img, self.det_img_dir)
-                
-                shape.generate_bitmap(bit_im=bit_im)
+
+                if not bitmap_generate:
+                    shape.bitmap = 0
+
+                else:
+                    shape.generate_bitmap(bit_im=bit_im)
+
 
                 if bit_im:
                     img = self.filename + '_' + str(i) + "bit" + '.png'
@@ -324,8 +366,34 @@ class analysis:
         var_angle = np.angle(spectra).var(axis = 0)
         mean_angle = np.angle(spectra).mean(axis = 0)
 
+        self.current_indicators = (var_energy, mean_energy, var_angle, mean_angle, df1,spectra)
         return var_energy, mean_energy, var_angle, mean_angle, df1,spectra
-    
+
+    def generate_data_indicators_light(self):
+        bit, df1 = self.generate_samples()
+        points = df1["curve_points"]
+        df1["angles"] = None
+        df1["angles"] = df1["angles"].astype(object)
+        df1["spectra"] = None
+        df1["spectra"] = df1["spectra"].astype(object)
+        limit = 20
+        for index,row in df1.iterrows():
+            points = row["curve_points"]
+            angles = np.arctan2(points[:, 1], points[:, 0])
+            df1.at[index, "angles"] = angles
+            og_data = np.linalg.norm(points, axis = 1)
+
+            fs1 = angles.shape[0]/(2*np.pi)
+            samples1 = og_data
+            fft1 = fft(og_data)
+            freqs1 = fftfreq(len(samples1), 1/fs1)
+            df1.at[index,"spectra"] = fft1[:limit]/points.shape[0]
+
+        spectra = df1["spectra"]
+        spectra = np.stack(spectra.values)
+        
+        return df1,spectra
+
     def run_study_var_score(self, number_of_sampes = 50,seed_interval = [3,7]):
         score_array = []
         df1_arrays = []
@@ -343,7 +411,7 @@ class analysis:
                 mean_energy_array.append(mean_energy[1:])
                 var_angle_array.append(var_angle)
                 mean_angle_array.append(mean_angle)
-                time.sleep(0.1)  # delays for 2 seconds
+                time.sleep(0.01)  # delays for 2 seconds
                 df1_arrays.append(df1)
 
             total_score = np.array(var_energy_array)**0.5 * np.array(mean_energy_array)
@@ -381,13 +449,105 @@ class analysis:
 
         return score_array, df1_arrays
     
+
     def find_min_dataset(self,spectra):
         arr = spectra
         min_dif = np.zeros(arr.shape[0])
         for elements in range(arr.shape[0]):
-            diff = np.linalg.norm(arr - arr[elements])
-            min_dif[elements] = np.min(diff)
+            diff = np.linalg.norm(arr - arr[elements],axis = 1)
+            min_dif[elements] = np.min(diff[diff != 0])
         return min_dif
 
+    def spectrogram(self, seed_interval = [3,7]):
+        list_of_seeds = np.arange(seed_interval[0], seed_interval[1])
+        array_of_indicators  = []
+        for seed_points in list_of_seeds:
+            self.n_base = seed_points
+            tups_indicator = self.generate_data_indicators()
+            array_of_indicators.append(tups_indicator)
+        return array_of_indicators
+
+    def uniform_generation(self, number_of_samples = 1000, seed_points = [3,10]):
+        samples_per_gen = number_of_samples/(seed_points[1] - seed_points[0])
+        i = 0
+        spectra_total = 0
+        df_total = 0
+        self.n_shapes = int(samples_per_gen)
+        for elements in np.arange(seed_points[0], seed_points[1]):
+            if elements == (seed_points[1] - 1):
+                self.n_shapes += number_of_samples%(seed_points[1] - seed_points[0])
+            self.n_base = elements
+            self.n_sampling_pts
+            df1, spectra = self.generate_data_indicators_light()
+
+            if i == 0 :
+                i = 1
+                spectra_total = spectra
+                df_total = df1
+
+            else:
+                spectra_total = np.concatenate([spectra_total, spectra])
+                df_total = pd.concat([df_total, df1], ignore_index=True)
+
+        return spectra_total, df_total
+
+    def weighted_generation(self, number_of_samples = 1000, seed_points = [3,10], weight = np.zeros(7) + (1/7)):
+        samples_per_gen = np.array(weight * number_of_samples,dtype = int)
+        residual = 1000 - samples_per_gen.sum()
+        i = 0
+        spectra_total = 0
+        df_total = 0
+        for elements in np.arange(seed_points[0], seed_points[1]):
+            self.n_shapes = samples_per_gen[i]
+            if elements == (seed_points[1] - 1):
+                self.n_shapes += residual
+            self.n_base = elements
+            df1, spectra = self.generate_data_indicators_light()
+
+            if i == 0 :
+                spectra_total = spectra
+                df_total = df1
+            else:
+                spectra_total = np.concatenate([spectra_total, spectra])
+                #df_total = pd.concat([df_total, df1], ignore_index=True)
+            i += 1
+
+        return spectra_total, df_total
+        
+    def weighted_generation_parallel(self, number_of_samples = 1000, seed_points = [3,10], weight = np.zeros(7) + (1/7)):
+        samples_per_gen = np.array(weight * number_of_samples,dtype = int)
+        residual = number_of_samples - samples_per_gen.sum()
+        samples_per_gen[-1] = samples_per_gen[-1] + residual
+        seeds = np.arange(seed_points[0], seed_points[1])
+        spectra_total = 0
+        args = list(zip(samples_per_gen, seeds,seeds))
+        with Pool() as pool:
+            results = pool.starmap(generate_data_indicators_light_ind, args)
+        return results
+    
+def generate_data_indicators_light_ind(seeds,number_of_samples,code):
+    bit, df1 = generate_samples(seeds,number_of_samples,code)
+    points = df1["curve_points"]
+    df1["angles"] = None
+    df1["angles"] = df1["angles"].astype(object)
+    df1["spectra"] = None
+    df1["spectra"] = df1["spectra"].astype(object)
+    limit = 20
+    for index,row in df1.iterrows():
+        points = row["curve_points"]
+        angles = np.arctan2(points[:, 1], points[:, 0])
+        df1.at[index, "angles"] = angles
+        og_data = np.linalg.norm(points, axis = 1)
+
+        fs1 = angles.shape[0]/(2*np.pi)
+        samples1 = og_data
+        fft1 = fft(og_data)
+        freqs1 = fftfreq(len(samples1), 1/fs1)
+        df1.at[index,"spectra"] = fft1[:limit]/points.shape[0]
+
+    spectra = df1["spectra"]
+    spectra = np.stack(spectra.values)
+    
+    return spectra
 
 # %%
